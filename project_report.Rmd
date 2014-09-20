@@ -1,0 +1,108 @@
+---
+title: "Predicting quality of exercise from accelerometer data"
+author: "Liz Supinski"
+date: "Saturday, September 20, 2014"
+output: html_document
+---
+## Introduction
+Personal activity monitors (Fitbit, Fuelband, etc.) are increasingly popular, and their utility in monitoring quantity of exercise is well established. Researchers investigated "how (well)" an activity was performed by the wearer, by asking participants to perform Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). The authors of this study have made the dataset available under a Creative Commons license (CC BY-SA) at http://groupware.les.inf.puc-rio.br/har .
+
+## Analysis
+This analysis was intended to answer the question "Can the class (quality) of this exercise be accurately predicted from accelerometer data using machine learning?". After loading necessary libraries and setting the seed, the data were partioned into training and test sets using a 75/25 split and a histogram was created to ensure that the outcome variable ("classe") had sufficient variation to proceed.
+
+```{r, echo=FALSE, message=FALSE}
+library(caret)
+library(ggplot2)
+library(corrplot)
+data <- read.csv("./RawData/pml-training.csv", stringsAsFactors = FALSE, 
+                 na.strings = c("NA","","#DIV/0!"))
+set.seed(2420)
+#create training and testing sets
+inTrain <- createDataPartition(y=data$classe, p=0.75, list=FALSE)
+training <- data[inTrain, ]
+testing <- data[-inTrain, ]
+rm(data, inTrain)
+print(ggplot(training, aes(x=classe)) + geom_histogram())
+```
+
+To clean up the data, the columns which did not include accelerometer data were removed. Next we evaluated variance of the predictors using the `nearZeroVar` function from the `caret` package and removed those predictors with zero or near zero variance. As we still had 117 predictors, we wanted to further reduce the number of variables. To avoid overfitting to uncommonly reported data, we set a threshold and identified predictors where more than 95% of the records were NA, and removed those predictors, leaving us with `r nrow(training)-1` predictors in our final dataset. (The testing set was then reduced to the same predictors and set aside.)
+```{r, echo=FALSE,cache=TRUE, message=FALSE}
+#drop irrelevant variables
+training <- training[ ,8:160]
+#drop columns that are all na
+        check <- lapply(training, class)
+        badcols <- grep("logical", check)
+        rm(check)
+training <- training[ , -badcols]
+#drop NZV columns
+        checkvar <- nearZeroVar(training, saveMetrics = TRUE)
+        drop <- grep("TRUE",checkvar$nzv)
+        rm(checkvar)
+training <- training[ , -drop]
+#drop columns with < 95% NA 
+        thresh <- dim(training)[1] * 0.95
+        checkthresh <- apply(training, 2, function(x) sum(is.na(x)) > thresh)
+        drop2 <- grep("TRUE",checkthresh)
+        rm(thresh, checkthresh)
+training <- training[ ,-drop2]
+
+#do the same with testing
+testing <- testing[ ,8:160]
+testing <- testing[ , -badcols]
+testing <- testing[ ,-drop]
+testing <- testing[ ,-drop2]
+rm(badcols,drop,drop2)
+#set outcome as factor
+training$classe <- as.factor(training$classe)
+testing$classe <- as.factor(testing$classe)
+```
+Next we trained four potential models, with `trControl` left at its default, providing simple bootstrap resampling. 
+```{r, echo=FALSE, message=FALSE}
+#Train models
+#LDAmodel <- train(classe ~ ., data=training, method="lda")  
+#PLRmodel <-train(classe ~ ., data=training, method= "plr") 
+#GBMmodel <- train(classe ~ ., data=training, method="gbm") 
+#RFmodel <- train(classe ~ ., data=training, method="rf") 
+
+#Models saved as RData, load them now
+load("./RData/LDAmodel.RData")
+load("./RData/PLRmodel.RData")
+load("./RData/GBMmodel.Rdata")
+load("./RData/RFmodel.Rdata")
+
+#Predict from models
+predGBM <- predict(GBMmodel, newdata = testing,na.action = na.pass)
+predPLR <- predict(PLRmodel, newdata = testing, na.action = na.pass)
+predRf <- predict(RFmodel, newdata = testing, na.action = na.pass)
+predLDA <- predict(LDAmodel, newdata = testing,na.action = na.pass)
+
+#make confusion matrices
+confusePLR <- confusionMatrix(testing$classe, predPLR)
+confuseRF <- confusionMatrix(testing$classe, predRf)
+confuseGBM <- confusionMatrix(testing$classe, predGBM)
+confuseLDA <- confusionMatrix(testing$classe, predLDA)
+rm(predGBM,predLDA,predPLR,predRf)
+```
+First we tried a linear discrimant analysis model. Because LCA uses dimensionality reduction, it was hoped that it would be quick but still accurate method of model fitting.Based on the training set, the expected accuracy of this model was 0.696. When cross validated   
+against the training set, the accuracy rose to 0.715. It was quick to run, but with limited tuning parameters available, we moved on to investigating other methods. The confusion matrix results follow:
+```{r, echo=FALSE, message=FALSE}
+confuseLDA
+```
+Next we tried a penalized logistic regression model. Logistic regression is commonly used for multi-class classification, and PLR is meant to compensate for rare events. Based on the training set, the expected accuracy of this model was only 0.398, and when cross-validated it rose only to 0.405. Perhaps because we cleaned the dataset to remove very rare events prior to modelling, the penalization in this model reduced its accuracy inappropriately. The confusion matrix results follow:
+```{r, echo=FALSE, message=FALSE}
+print(confusePLR)
+```
+Our third attempt was a boosted tree model.  R's `GBM` method uses stochasic gradient boosting, in which different boosting tress are fitted to each category of the outcome variable and then optimized; it generally performs very well on classification problems. The final model used 150 trees, and predicted an accuracy of 0.957. In the testing set, the cross-validated accuracy was 0.962, as shown in the following confusion matrix results:
+```{r, echo=FALSE, message=FALSE}
+print(confuseGBM)
+```
+Finally, we tried a random forest model. As a random forest is a collection of simple tree predictors, each capable of producing a response from a set of predictors. We anticipated that it would perform better than the boosted tree, but would be very time-consuming to run. (It did and it was!) It's predicted accuracy was .989, and when cross-validated against the test data its accuracy rose to 0.994. When run against the submission data, it accurately predicted all 20 items.
+```{r, echo=FALSE, message=FALSE}
+print(confuseRF)
+```
+## Summary
+Both boosted tree and random forest models provided good accuracy for this problem. Estimated and cross-validated out-of-sample error for each model are summarized below. The random forest outperformed the boosted tree, but at a significant cost in computing time.
+```{r, echo=FALSE, message=FALSE}
+load("resulttable.RData")
+print(resulttable)
+```
