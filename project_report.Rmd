@@ -25,7 +25,7 @@ rm(data, inTrain)
 print(ggplot(training, aes(x=classe)) + geom_histogram())
 ```
 
-To clean up the data, the columns which did not include accelerometer data were removed. Next we evaluated variance of the predictors using the `nearZeroVar` function from the `caret` package and removed those predictors with zero or near zero variance. As we still had 117 predictors, we wanted to further reduce the number of variables. To avoid overfitting to uncommonly reported data, we set a threshold and identified predictors where more than 95% of the records were NA, and removed those predictors, leaving us with `r ncol(training)-1` predictors in our final dataset. (The testing set was then reduced to the same predictors and set aside.)
+To clean up the data, the columns which did not include accelerometer data were removed. Next we evaluated variance of the predictors using the `nearZeroVar` function from the `caret` package and removed those predictors with zero or near zero variance. As we still had 117 predictors, we wanted to further reduce the number of variables. To avoid overfitting to uncommonly reported data, we set a threshold and identified predictors where more than 95% of the records were NA, and removed those predictors, leaving us with 52 predictors in our final dataset. (The testing set was then reduced to the same predictors and set aside.)
 ```{r, echo=FALSE,cache=TRUE, message=FALSE}
 #drop irrelevant variables
 training <- training[ ,8:160]
